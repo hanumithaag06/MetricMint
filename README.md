@@ -10,8 +10,8 @@ Companies often define metrics differently or don’t disclose them. AI chatbots
 MetricMint aims to solve this by finding answers directly from official company reports, showing the source and the company's definition of each metric, and clearly saying "not disclosed" when the information cannot be verified.
 
 ## Who it is for
-- **Data analyst intern at a Bengaluru-based VC fund
-- **Investment associate
+- Data analyst intern at a Bengaluru-based VC fund
+- Investment associate
 
 ## Signature feature
 **Definition card**: Each metric answer includes its definition and direct quote from the original report. This helps analysts understand the context and compare metrics accurately across companies.
