@@ -1,23 +1,29 @@
-# <Your product name>
+# MetricMint
 
-> Fill this top section from your Examate project card on Day 1. Replace every line in angle brackets.
+> A reliable AI assistant that helps analysts find company financial metrics, verify them from official reports, and avoid hallucinated answers.
 
 ## Problem
-<3–5 sentences: who struggles with what today, and what your product changes.>
+When analysing companies like Eternal (Zomato and Blinkit), Swiggy, Nykaa, and Info Edge, finding the right financial metrics is time consuming and data is spread across annual reports, shareholder letters, and other investor documents.
+
+Companies often define metrics differently or don’t disclose them. AI chatbots may fill these gaps with made-up numbers, leading to inaccurate data and unreliable analysis.
+
+MetricMint aims to solve this by finding answers directly from official company reports, showing the source and the company's definition of each metric, and clearly saying "not disclosed" when the information cannot be verified.
 
 ## Who it is for
-<One or two real user types, for example "compliance officer at a gold-loan NBFC in Coimbatore".>
+- **Data analyst intern at a Bengaluru-based VC fund
+- **Investment associate
 
 ## Signature feature
-<One sentence: the feature only your product has.>
+**Definition card**: Each metric answer includes its definition and direct quote from the original report. This helps analysts understand the context and compare metrics accurately across companies.
+
 
 ## Hardest problem (my interview story)
-<In your own words, from your project card.>
+One of MetricMint’s main challenges is making sure the AI doesn’t guess when information is missing. I plan to test it with 100 questions, including 20 unanswerable ones, to check accuracy and how well it handles missing information. The goal is to reduce hallucinations using a confidence threshold and a refusal mechanism, ensuring answers are backed by reliable sources.
 
 ## Dataset
 | Source | Link | Documents | Pages | Licence / terms |
 |---|---|---|---|---|
-| <name> | <url> | <n> | <n> | <licence> |
+| Eternal Ltd (Zomato, Blinkit): shareholders' letters, quarterly results, annual reports | https://www.eternal.com/investor-relations/results/ | <n> | <n> | Publicly released company filings from the investor relations page; used for research only |
 
 ## 10 real questions
 See [docs/QUESTIONS.md](docs/QUESTIONS.md).
