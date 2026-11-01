@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 
 import httpx
 
-from app.llm.base import LLMError, StreamResult
+from app.llm.base import LLMError, LLMUnavailable, StreamResult
 from app.schemas import Message, Usage
 from app.tokens import estimate_tokens
 
@@ -121,7 +121,7 @@ class OpenAICompatProvider:
                                 await response.aread()
                             ).decode(errors="replace")[:300]
 
-                            raise LLMError(
+                            raise LLMUnavailable(
                                 f"provider returned "
                                 f"{response.status_code}: {body}"
                             )
@@ -196,7 +196,7 @@ class OpenAICompatProvider:
                 # Never retry after streaming text to the user.
                 if produced_any:
 
-                    raise LLMError(
+                    raise LLMUnavailable(
                         f"stream broke mid-answer: {exc}"
                     ) from exc
 
@@ -211,7 +211,7 @@ class OpenAICompatProvider:
                         )
                     )
 
-        raise LLMError(
+        raise LLMUnavailable(
             f"LLM call failed after "
             f"{self.max_retries + 1} attempts: {last_error}"
         )

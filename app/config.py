@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     price_input_per_million: float = 0.0
     price_output_per_million: float = 0.0
 
+    # Fallback model configuration
+    llm_fallback_model: str = ""
+    llm_fallback_base_url: str = ""
+    llm_fallback_api_key: str = ""
+
     # Cost tracking
     cost_log_path: str = "logs/cost.jsonl"
 

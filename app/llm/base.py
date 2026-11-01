@@ -8,6 +8,8 @@ class StreamResult:
 
     def __init__(self) -> None:
         self.usage = Usage()
+        self.model = ""          # actual model that answered
+        self.fallback_used = False
 
 
 class LLMProvider(Protocol):
@@ -19,7 +21,7 @@ class LLMProvider(Protocol):
         self,
         messages: list[Message],
         temperature: float,
-        result: StreamResult
+        result: StreamResult,
     ) -> AsyncIterator[str]:
 
         ...
@@ -27,3 +29,7 @@ class LLMProvider(Protocol):
 
 class LLMError(Exception):
     """Raised when the provider fails after retries."""
+
+
+class LLMUnavailable(LLMError):
+    """Provider remained unavailable after all retries."""
