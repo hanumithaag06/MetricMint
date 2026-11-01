@@ -1,6 +1,5 @@
 """Tests for fallback model and GET /usage."""
 import asyncio
-import json
 
 import httpx
 import pytest
@@ -111,4 +110,3 @@ def test_usage_endpoint(client):
     assert data[day]["input_tokens"] > 0
     assert data[day]["output_tokens"] > 0
     assert data[day]["cost_usd"] > 0
-
