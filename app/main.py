@@ -46,6 +46,7 @@ def health(settings: SettingsDep) -> dict:
 
 @app.get("/ready")
 def ready(settings: SettingsDep):
+    """Check whether the application dependencies are reachable."""
     if not settings.database_url:
         return {
             "status": "ready",
