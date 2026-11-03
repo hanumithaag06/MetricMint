@@ -3,8 +3,9 @@ import time
 from collections.abc import AsyncIterator
 from typing import Annotated
 
+import psycopg
 from fastapi import Depends, FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.config import Settings, get_settings
 from app.cost import log_call
@@ -47,6 +48,17 @@ def sse(data: dict, event: str | None = None) -> str:
     prefix = f"event: {event}\n" if event else ""
     return f"{prefix}data: {json.dumps(data)}\n\n"
 
+@app.get("/ready")
+def ready(settings: SettingsDep):
+    """Readiness: dependencies are reachable. Load balancers and hosts use this."""
+    if not settings.database_url:
+        return {"status": "ready", "database": "not configured"}
+    try:
+        with psycopg.connect(settings.database_url, connect_timeout=3) as conn:
+            conn.execute("SELECT 1")
+        return {"status": "ready", "database": "ok"}
+    except Exception as exc:  # report, don't crash
+        return JSONResponse(status_code=503, content={"status": "not ready", "database": str(exc)[:200]})
 
 @app.post("/chat")
 async def chat(request: ChatRequest, settings: SettingsDep, provider: LLMDep) -> StreamingResponse:

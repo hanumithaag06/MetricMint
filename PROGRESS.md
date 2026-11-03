@@ -12,7 +12,7 @@ Commit after every class. Tag every Friday: `git tag week-N && git push origin w
 
 ## Week 2 (tag week-2 by Fri 30 Oct)
 - ✅ POST /chat calls an LLM and returns structured JSON
-- ⬜ Streaming, timeouts, retry and a fallback model
+- ✅ Streaming, timeouts, retry and a fallback model
 - ✅ Cost log + GET /usage
 - ✅ Docker Compose (API + Postgres/pgvector) runs
 - ⬜ CI green, live link in README
@@ -28,7 +28,8 @@ Commit after every class. Tag every Friday: `git tag week-N && git push origin w
 ## Daily log
 | Date | What I did today | Commit |
 |---|---|---|
-| 21 Oct | Created the repo from the template, first commits | Initial commit, message, message |
-| 23 Oct | Uploaded the dataset, added venv to .gitignore | dataset upload, Ignore venv |
-| 2 Nov | Set up the LLM, added LLM calls and cost logging, added Docker Compose | setting llm, llm calls and cost (x2), docker compose |
-| 3 Nov | Collected Eternal PDF links, built urls.txt, ran download.py (4 letters, 146 pages saved; DNS error on the 5th file) | modified |
+| 21 Oct 2026 | Created the repo from the template, first commits | 2101c50 |
+| 23 Oct 2026 | Uploaded the dataset, added venv to .gitignore | 8c95827 |
+| 02 Nov 2026 | Set up the LLM, added LLM calls and cost logging, added Docker Compose | cfc2139 |
+| 03 Nov 2026 | Streaming /chat, safe retries, fallback model, cost log, GET /usage | 5564ace |
+| 03 Nov 2026 | Docker Compose (API + pgvector), /ready route, .dockerignore | pending |

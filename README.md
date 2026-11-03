@@ -38,4 +38,9 @@ curl localhost:8000/health
 ```
 
 ## Live link
-<Added in Week 2>
+## Run with Docker
+```bash
+cp .env.example .env
+docker compose up --build
+curl localhost:8000/ready
+```
