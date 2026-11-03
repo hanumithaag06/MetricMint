@@ -1,50 +1,35 @@
-import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable, Iterator
 
-from app.llm.base import StreamResult
-from app.schemas import Message, Usage
-from app.tokens import estimate_tokens
+from app.llm.types import LLMProvider, LLMRequest, ProviderError, TextChunk, Usage
 
 
-class FakeProvider:
-
-    name = "fake"
+class FakeProvider(LLMProvider):
+    """Deterministic provider for local development and tests."""
 
     def __init__(
         self,
-        model: str = "fake-model",
-        delay_seconds: float = 0.0
+        chunks: Iterable[str] = ("Hello", " from the fake provider."),
+        usage: Usage | None = None,
+        error: ProviderError | None = None,
     ) -> None:
-
-        self.model = model
-        self.delay_seconds = delay_seconds
-
-    async def stream_chat(
-        self,
-        messages: list[Message],
-        temperature: float,
-        result: StreamResult
-    ) -> AsyncIterator[str]:
-
-        question = messages[-1].content
-
-        reply = (
-            f"You asked: {question}. "
-            "This is a fake answer for testing."
+        self._chunks = tuple(chunks)
+        self._usage = usage or Usage(
+            input_tokens=0,
+            output_tokens=len(self._chunks),
+            estimated=True,
         )
+        self._error = error
+        self.calls = 0
 
-        for word in reply.split(" "):
+    def stream(self, request: LLMRequest) -> Iterator[TextChunk]:
+        self.calls += 1
+        if self._error is not None:
+            raise self._error
+        for chunk in self._chunks:
+            yield TextChunk(chunk)
+        if self._chunks:
+            yield TextChunk("", usage=self._usage)
 
-            if self.delay_seconds:
-                await asyncio.sleep(self.delay_seconds)
-
-            yield word + " "
-
-        result.usage = Usage(
-            input_tokens=sum(
-                estimate_tokens(m.content)
-                for m in messages
-            ),
-            output_tokens=estimate_tokens(reply),
-            estimated=True
-        )
+    async def stream_async(self, request: LLMRequest) -> AsyncIterator[TextChunk]:
+        for chunk in self.stream(request):
+            yield chunk

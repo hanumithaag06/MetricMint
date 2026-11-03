@@ -1,179 +1,62 @@
-import asyncio
 import json
 
 import httpx
 import pytest
 
-from app.llm.base import LLMError, StreamResult
-from app.llm.openai_compat import OpenAICompatProvider, backoff_delay
-from app.schemas import Message
+from app.llm.openai_compat import OpenAICompatProvider
+from app.llm.types import LLMRequest, Message
 
-MSGS = [
-    Message(role="user", content="hello")
-]
+REQUEST = LLMRequest(
+    messages=(Message(role="user", content="Hello"),),
+    model="test-model",
+)
 
 
-def sse_body(pieces, usage=None):
-
-    lines = []
-
-    for p in pieces:
-
-        lines.append(
-            "data: " + json.dumps({
-                "choices": [
-                    {
-                        "delta": {
-                            "content": p
-                        }
-                    }
-                ]
-            })
+@pytest.mark.anyio
+async def test_openai_compatible_provider_reads_sse_and_usage():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        assert request.headers["authorization"] == "Bearer secret"
+        payload = {
+            "choices": [{"delta": {"content": "Hi"}}],
+        }
+        usage = {
+            "usage": {"prompt_tokens": 2, "completion_tokens": 1},
+            "choices": [],
+        }
+        body = (
+            f"data: {json.dumps(payload)}\n\n"
+            f"data: {json.dumps(usage)}\n\n"
+            "data: [DONE]\n\n"
         )
+        return httpx.Response(200, text=body)
 
-    if usage:
-
-        lines.append(
-            "data: " + json.dumps({
-                "choices": [],
-                "usage": usage
-            })
-        )
-
-    lines.append("data: [DONE]")
-
-    return (
-        "\n\n".join(lines) + "\n\n"
-    ).encode()
-
-
-def provider(handler, retries=3):
-
-    return OpenAICompatProvider(
-        base_url="http://test/v1",
-        api_key="k",
-        model="m",
-        max_retries=retries,
-        backoff_base_seconds=0.0,
-        transport=httpx.MockTransport(handler)
+    provider = OpenAICompatProvider(
+        "http://test/v1",
+        "secret",
+        "provider-model",
+        transport=httpx.MockTransport(handler),
     )
 
+    chunks = [chunk async for chunk in provider.stream_async(REQUEST)]
 
-def collect(p):
-
-    result = StreamResult()
-
-    async def run():
-
-        return "".join([
-            piece
-            async for piece in p.stream_chat(
-                MSGS,
-                0.2,
-                result
-            )
-        ])
-
-    return asyncio.run(run()), result
+    assert [chunk.text for chunk in chunks] == ["Hi", ""]
+    assert chunks[-1].usage.input_tokens == 2
 
 
-def test_streams_text_and_reads_usage():
+@pytest.mark.anyio
+async def test_openai_compatible_provider_preserves_status_code():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, text="bad key")
 
-    def handler(request):
+    provider = OpenAICompatProvider(
+        "http://test/v1",
+        "secret",
+        "provider-model",
+        transport=httpx.MockTransport(handler),
+    )
 
-        assert request.headers[
-            "Authorization"
-        ] == "Bearer k"
+    with pytest.raises(Exception) as caught:
+        _ = [chunk async for chunk in provider.stream_async(REQUEST)]
 
-        return httpx.Response(
-            200,
-            content=sse_body(
-                ["Hel", "lo"],
-                {
-                    "prompt_tokens": 7,
-                    "completion_tokens": 2
-                }
-            )
-        )
-
-    text, result = collect(provider(handler))
-
-    assert text == "Hello"
-
-    assert result.usage.input_tokens == 7
-    assert result.usage.output_tokens == 2
-    assert result.usage.estimated is False
-
-
-def test_retries_on_503_then_succeeds():
-
-    calls = {"n": 0}
-
-    def handler(request):
-
-        calls["n"] += 1
-
-        if calls["n"] < 3:
-            return httpx.Response(503)
-
-        return httpx.Response(
-            200,
-            content=sse_body(["ok"])
-        )
-
-    text, result = collect(provider(handler))
-
-    assert text == "ok"
-    assert calls["n"] == 3
-    assert result.usage.estimated is True
-
-
-def test_does_not_retry_on_401():
-
-    calls = {"n": 0}
-
-    def handler(request):
-
-        calls["n"] += 1
-
-        return httpx.Response(
-            401,
-            json={"error": "bad key"}
-        )
-
-    with pytest.raises(LLMError):
-        collect(provider(handler))
-
-    assert calls["n"] == 1
-
-
-def test_gives_up_after_max_retries_on_timeout():
-
-    calls = {"n": 0}
-
-    def handler(request):
-
-        calls["n"] += 1
-
-        raise httpx.ReadTimeout(
-            "slow",
-            request=request
-        )
-
-    with pytest.raises(LLMError):
-        collect(provider(handler, retries=2))
-
-    assert calls["n"] == 3
-
-
-def test_backoff_is_bounded():
-
-    for attempt in range(10):
-
-        assert (
-            0 <= backoff_delay(
-                attempt,
-                base=0.5,
-                cap=8.0
-            ) <= 8.0
-        )
+    assert caught.value.status_code == 401

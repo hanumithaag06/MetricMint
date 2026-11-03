@@ -1,32 +1,13 @@
-import asyncio
 import json
-import random
 from collections.abc import AsyncIterator
 
 import httpx
 
-from app.llm.base import LLMError, LLMUnavailable, StreamResult
-from app.schemas import Message, Usage
-from app.tokens import estimate_tokens
-
-RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+from app.llm.types import LLMProvider, LLMRequest, ProviderError, TextChunk, Usage
 
 
-def backoff_delay(
-    attempt: int,
-    base: float,
-    cap: float = 8.0
-) -> float:
-
-    return random.uniform(
-        0,
-        min(cap, base * (2 ** attempt))
-    )
-
-
-class OpenAICompatProvider:
-
-    name = "openai_compat"
+class OpenAICompatProvider(LLMProvider):
+    """Streaming client for OpenAI-compatible /chat/completions endpoints."""
 
     def __init__(
         self,
@@ -34,184 +15,87 @@ class OpenAICompatProvider:
         api_key: str,
         model: str,
         timeout_seconds: float = 30.0,
-        max_retries: int = 3,
-        backoff_base_seconds: float = 0.5,
-        transport: httpx.AsyncBaseTransport | None = None
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
-
-        self.timeout = httpx.Timeout(
-            timeout_seconds,
-            connect=5.0
-        )
-
-        self.max_retries = max_retries
-        self.backoff_base = backoff_base_seconds
+        self.timeout = httpx.Timeout(timeout_seconds, connect=5.0)
         self.transport = transport
 
-    def _headers(self) -> dict[str, str]:
-
-        headers = {
-            "Content-Type": "application/json"
-        }
-
-        if self.api_key:
-            headers["Authorization"] = (
-                f"Bearer {self.api_key}"
-            )
-
-        return headers
-
-    async def stream_chat(
-        self,
-        messages: list[Message],
-        temperature: float,
-        result: StreamResult
-    ) -> AsyncIterator[str]:
-
+    async def stream_async(self, request: LLMRequest) -> AsyncIterator[TextChunk]:
         payload = {
-            "model": self.model,
-
+            "model": request.model or self.model,
             "messages": [
-                m.model_dump()
-                for m in messages
+                {"role": message.role, "content": message.content}
+                for message in request.messages
             ],
-
-            "temperature": temperature,
             "stream": True,
-            "stream_options": {
-                "include_usage": True
-            }
+            "stream_options": {"include_usage": True},
         }
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
 
-        last_error: Exception | None = None
-
-        for attempt in range(self.max_retries + 1):
-
-            produced_any = False
-
-            try:
-
-                async with httpx.AsyncClient(
-                    timeout=self.timeout,
-                    transport=self.transport
-                ) as client:
-
-                    async with client.stream(
-                        "POST",
-                        f"{self.base_url}/chat/completions",
-                        headers=self._headers(),
-                        json=payload
-                    ) as response:
-
-                        if response.status_code in RETRYABLE_STATUS:
-
-                            raise httpx.HTTPStatusError(
-                                f"retryable status {response.status_code}",
-                                request=response.request,
-                                response=response
-                            )
-
-                        if response.status_code >= 400:
-
-                            body = (
-                                await response.aread()
-                            ).decode(errors="replace")[:300]
-
-                            raise LLMUnavailable(
-                                f"provider returned "
-                                f"{response.status_code}: {body}"
-                            )
-
-                        text_parts = []
-
-                        async for line in response.aiter_lines():
-
-                            if not line.startswith("data:"):
-                                continue
-
-                            data = line[len("data:"):].strip()
-
-                            if data == "[DONE]":
-                                break
-
-                            chunk = json.loads(data)
-
-                            if chunk.get("usage"):
-
-                                u = chunk["usage"]
-
-                                result.usage = Usage(
-                                    input_tokens=u.get(
-                                        "prompt_tokens", 0
-                                    ),
-                                    output_tokens=u.get(
-                                        "completion_tokens", 0
-                                    )
-                                )
-
-                            for choice in chunk.get("choices", []):
-
-                                piece = (
-                                    choice.get("delta") or {}
-                                ).get("content")
-
-                                if piece:
-
-                                    produced_any = True
-                                    text_parts.append(piece)
-
-                                    yield piece
-
-                        if (
-                            result.usage.input_tokens == 0
-                            and result.usage.output_tokens == 0
-                        ):
-
-                            result.usage = Usage(
-                                input_tokens=sum(
-                                    estimate_tokens(m.content)
-                                    for m in messages
-                                ),
-                                output_tokens=estimate_tokens(
-                                    "".join(text_parts)
-                                ),
-                                estimated=True
-                            )
-
-                        return
-
-            except LLMError:
-                raise
-
-            except (
-                httpx.TimeoutException,
-                httpx.TransportError,
-                httpx.HTTPStatusError
-            ) as exc:
-
-                # Never retry after streaming text to the user.
-                if produced_any:
-
-                    raise LLMUnavailable(
-                        f"stream broke mid-answer: {exc}"
-                    ) from exc
-
-                last_error = exc
-
-                if attempt < self.max_retries:
-
-                    await asyncio.sleep(
-                        backoff_delay(
-                            attempt,
-                            self.backoff_base
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout,
+                transport=self.transport,
+            ) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                ) as response:
+                    if response.status_code >= 400:
+                        body = (await response.aread()).decode(errors="replace")[:300]
+                        raise ProviderError(
+                            f"provider returned {response.status_code}: {body}",
+                            status_code=response.status_code,
+                            retry_after=_retry_after(response),
                         )
-                    )
 
-        raise LLMUnavailable(
-            f"LLM call failed after "
-            f"{self.max_retries + 1} attempts: {last_error}"
-        )
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if data == "[DONE]":
+                            return
+                        try:
+                            chunk = json.loads(data)
+                        except json.JSONDecodeError as error:
+                            raise ProviderError("provider returned invalid stream JSON") from error
+                        usage = _usage_from_chunk(chunk)
+                        if usage is not None:
+                            yield TextChunk("", usage=usage)
+                        for choice in chunk.get("choices", []):
+                            text = (choice.get("delta") or {}).get("content")
+                            if text:
+                                yield TextChunk(text)
+        except ProviderError:
+            raise
+        except httpx.TimeoutException as error:
+            raise ProviderError(f"provider timeout: {error}") from error
+        except httpx.TransportError as error:
+            raise ProviderError(f"provider connection failed: {error}") from error
+
+
+def _retry_after(response: httpx.Response) -> float | None:
+    value = response.headers.get("retry-after")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _usage_from_chunk(chunk: dict) -> Usage | None:
+    usage = chunk.get("usage")
+    if not usage:
+        return None
+    return Usage(
+        input_tokens=usage.get("prompt_tokens", 0),
+        output_tokens=usage.get("completion_tokens", 0),
+    )

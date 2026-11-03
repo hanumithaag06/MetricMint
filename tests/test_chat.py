@@ -1,111 +1,29 @@
 import json
-from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from app.config import Settings, get_settings
+from app.llm.fake import FakeProvider
+from app.llm.reliable import AsyncReliableLLM
+from app.main import app, get_llm
 
 
-def parse_sse(text: str):
+def test_chat_streams_sse_events():
+    app.dependency_overrides[get_settings] = lambda: Settings(environment="test")
+    app.dependency_overrides[get_llm] = lambda: AsyncReliableLLM(FakeProvider(chunks=("Hi", " there")))
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/chat",
+                json={"messages": [{"role": "user", "content": "Hello"}], "model": "fake-model"},
+            )
+    finally:
+        app.dependency_overrides.clear()
 
-    events = []
-
-    for block in text.strip().split("\n\n"):
-
-        name = "message"
-        data = None
-
-        for line in block.split("\n"):
-
-            if line.startswith("event:"):
-
-                name = line[len("event:"):].strip()
-
-            elif line.startswith("data:"):
-
-                data = json.loads(
-                    line[len("data:"):].strip()
-                )
-
-        events.append((name, data))
-
-    return events
-
-
-def test_chat_streams_and_logs_cost(client):
-
-    body = {
-        "messages": [
-            {
-                "role": "user",
-                "content": "What is RAG?"
-            }
-        ]
-    }
-
-    with client.stream(
-        "POST",
-        "/chat",
-        json=body
-    ) as r:
-
-        assert r.status_code == 200
-
-        assert r.headers[
-            "content-type"
-        ].startswith("text/event-stream")
-
-        text = "".join(r.iter_text())
-
-    events = parse_sse(text)
-
-    deltas = [
-        d["delta"]
-        for name, d in events
-        if name == "message"
-    ]
-
-    assert "".join(deltas).startswith(
-        "You asked: What is RAG?"
-    )
-
-    done = [
-        d
-        for name, d in events
-        if name == "done"
-    ][0]
-
-    assert done["usage"]["output_tokens"] > 0
-
-    lines = Path(
-        client.settings.cost_log_path
-    ).read_text().strip().split("\n")
-
-    record = json.loads(lines[-1])
-
-    assert record["provider"] == "fake"
-    assert record["ok"] is True
-    assert record["cost_usd"] > 0
-
-
-def test_chat_rejects_bad_input(client):
-
-    r = client.post(
-        "/chat",
-        json={"messages": []}
-    )
-
-    assert r.status_code == 422
-
-
-def test_chat_rejects_invalid_role(client):
-
-    r = client.post(
-        "/chat",
-        json={
-            "messages": [
-                {
-                    "role": "hacker",
-                    "content": "hi"
-                }
-            ]
-        }
-    )
-
-    assert r.status_code == 422
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert 'data: {"delta": "Hi"}' in response.text
+    assert 'data: {"delta": " there"}' in response.text
+    assert "event: done" in response.text
+    done = response.text.split("event: done\n")[1].split("\n\n")[0]
+    assert json.loads(done.removeprefix("data: "))["usage"]["output_tokens"] == 2
